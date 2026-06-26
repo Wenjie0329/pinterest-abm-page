@@ -1,0 +1,2434 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Pinterest AI Discovery Retrieval Architecture | Zilliz</title>
+  <meta name="description" content="A technical perspective on Pinterest-scale AI discovery, ads, shopping, vector search, and data infrastructure, with an architecture review path for retrieval workloads.">
+  <style>
+    :root {
+      --ink: #111827;
+      --muted: #526173;
+      --line: #d7e1ea;
+      --soft: #f6f8fb;
+      --surface: #fbfdff;
+      --surface-strong: #eef4f8;
+      --white: #fff;
+      --teal: #0f766e;
+      --teal-dark: #0b5f59;
+      --blue: #2563eb;
+      --red: #d62f3b;
+      --gold: #b7791f;
+      --green: #2f855a;
+      --account-color: #e60023;
+      --shadow: 0 20px 48px rgba(17, 24, 39, 0.10);
+      --shadow-soft: 0 10px 28px rgba(17, 24, 39, 0.07);
+      --shadow-hover: 0 24px 58px rgba(17, 24, 39, 0.14);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body {
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, #f7fafc 0%, #fff 33%, #f4f7fa 100%);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    a:focus-visible,
+    button:focus-visible {
+      outline: 3px solid rgba(37, 99, 235, 0.35);
+      outline-offset: 4px;
+      border-radius: 8px;
+    }
+
+    img {
+      max-width: 100%;
+    }
+
+    .page {
+      min-height: 100vh;
+    }
+
+    .container {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(20px);
+      background: rgba(248, 250, 252, 0.88);
+      border-bottom: 1px solid rgba(215, 225, 234, 0.76);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      min-height: 76px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      color: var(--ink);
+      font-weight: 850;
+    }
+
+    .brand-logo {
+      display: block;
+      width: 97px;
+      height: 40px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .resource-link,
+    .nav-link {
+      color: var(--muted);
+      font-weight: 750;
+      font-size: 14px;
+      transition: color 180ms ease, transform 180ms ease;
+    }
+
+    .nav-link:hover,
+    .resource-link:hover {
+      color: var(--teal-dark);
+    }
+
+    .resource-link {
+      color: var(--teal-dark);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      max-width: 100%;
+      min-height: 34px;
+      padding: 7px 12px;
+      border: 1px solid rgba(15, 118, 110, 0.20);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 8px 18px rgba(15, 118, 110, 0.08);
+      line-height: 1.2;
+      margin-top: 16px;
+    }
+
+    .resource-link::after {
+      content: none;
+    }
+
+    .resource-link:hover {
+      border-color: rgba(15, 118, 110, 0.36);
+      background: #effaf8;
+      box-shadow: 0 10px 22px rgba(15, 118, 110, 0.12);
+      transform: translateY(-1px);
+    }
+
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 18px;
+      border-radius: 8px;
+      border: 0;
+      color: #fff;
+      background: linear-gradient(135deg, var(--teal), #0d9488);
+      box-shadow: 0 12px 26px rgba(15, 118, 110, 0.24);
+      font-weight: 850;
+      font-size: 14px;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+
+    .cta:hover {
+      background: linear-gradient(135deg, var(--teal-dark), var(--teal));
+      box-shadow: 0 16px 34px rgba(15, 118, 110, 0.30);
+      transform: translateY(-1px);
+    }
+
+    .hero {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+      gap: 30px 48px;
+      align-items: center;
+      padding: 78px 24px 66px;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 34px 24px auto;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(15, 118, 110, 0.36), rgba(37, 99, 235, 0.22), transparent);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      max-width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #b9d9d6;
+      border-radius: 999px;
+      color: var(--teal-dark);
+      background: #effaf8;
+      font-weight: 850;
+      font-size: 13px;
+      box-shadow: 0 8px 22px rgba(15, 118, 110, 0.08);
+    }
+
+    .eyebrow-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--teal);
+      flex: 0 0 auto;
+    }
+
+    h1,
+    h2,
+    h3,
+    p,
+    span {
+      overflow-wrap: break-word;
+    }
+
+    h1 {
+      margin: 0 0 18px;
+      max-width: 790px;
+      font-size: clamp(42px, 5.4vw, 66px);
+      line-height: 0.98;
+      letter-spacing: 0;
+      color: #0f172a;
+    }
+
+    h1 span {
+      display: block;
+    }
+
+    h1 .account-highlight {
+      display: inline;
+      color: var(--account-color);
+      white-space: nowrap;
+    }
+
+    .hero-copy-block {
+      display: block;
+      grid-column: 1 / -1;
+      padding-top: 4px;
+    }
+
+    .hero-copy {
+      max-width: none;
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.58;
+    }
+
+    .hero-action {
+      margin-top: 22px;
+    }
+
+    .resource-row {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+
+    .hero-visual-card {
+      position: relative;
+      min-width: 0;
+      margin: 0;
+      padding: 10px;
+      border: 1px solid #d5e1eb;
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at 12% 18%, rgba(15, 118, 110, 0.12), transparent 26%),
+        radial-gradient(circle at 88% 70%, rgba(37, 99, 235, 0.10), transparent 30%),
+        linear-gradient(135deg, #ffffff 0%, #f3f8fb 100%);
+      box-shadow: 0 24px 70px rgba(23, 32, 42, 0.14);
+      overflow: hidden;
+      transform: translateZ(0);
+    }
+
+    .hero-visual-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 5px;
+      background: linear-gradient(90deg, var(--red), var(--teal), var(--blue), var(--gold));
+      z-index: 1;
+    }
+
+    .hero-visual-card img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      object-fit: cover;
+      object-position: center;
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .workflow-visual {
+      padding: 18px;
+      background:
+        radial-gradient(circle at 12% 16%, rgba(230, 0, 35, 0.12), transparent 24%),
+        radial-gradient(circle at 90% 76%, rgba(15, 118, 110, 0.14), transparent 28%),
+        linear-gradient(135deg, #fff 0%, #f3f8fb 100%);
+    }
+
+    .workflow-visual::after {
+      content: "";
+      position: absolute;
+      inset: auto 18px 18px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(15, 118, 110, 0.32), transparent);
+    }
+
+    .visual-panel {
+      position: relative;
+      display: grid;
+      gap: 14px;
+      min-height: 430px;
+      padding: 20px;
+      border: 1px solid #e1ebf2;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.92);
+    }
+
+    .visual-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .visual-head strong {
+      display: block;
+      color: #111827;
+      font-size: 19px;
+      line-height: 1.15;
+    }
+
+    .visual-head span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .visual-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 0 10px;
+      border-radius: 999px;
+      color: var(--account-color);
+      background: rgba(230, 0, 35, 0.08);
+      border: 1px solid rgba(230, 0, 35, 0.18);
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .visual-lane {
+      display: grid;
+      grid-template-columns: 1fr 1.02fr 1fr;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .visual-column {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .visual-label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .visual-node {
+      display: grid;
+      min-height: 50px;
+      place-items: center;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fbfd;
+      color: #253245;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 850;
+      line-height: 1.25;
+    }
+
+    .visual-core {
+      display: grid;
+      place-items: center;
+      min-height: 100%;
+      padding: 16px;
+      border-radius: 8px;
+      color: #fff;
+      text-align: center;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.18), transparent 26%),
+        linear-gradient(135deg, #0f766e, #2563eb);
+      box-shadow: 0 16px 34px rgba(15, 118, 110, 0.20);
+    }
+
+    .visual-core strong {
+      display: block;
+      font-size: 18px;
+      line-height: 1.15;
+    }
+
+    .visual-core span {
+      display: block;
+      margin-top: 8px;
+      color: rgba(255, 255, 255, 0.86);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .stack-strip {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid #d7e4ef;
+      border-radius: 8px;
+      background: #f8fbfd;
+    }
+
+    .stack-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .stack-chip {
+      padding: 6px 8px;
+      border: 1px solid #dce8f0;
+      border-radius: 8px;
+      color: #354052;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 850;
+    }
+
+    .snapshot-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .snapshot-card {
+      min-height: 254px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .snapshot-card strong {
+      display: block;
+      margin: 12px 0 8px;
+      color: #111827;
+      font-size: 19px;
+      line-height: 1.2;
+    }
+
+    .snapshot-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.58;
+    }
+
+    .snapshot-number {
+      display: grid;
+      width: 44px;
+      height: 44px;
+      place-items: center;
+      border-radius: 8px;
+      color: #fff;
+      background: var(--account-color);
+      font-weight: 900;
+      font-size: 14px;
+    }
+
+    .workflow-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .workflow-card {
+      min-height: 352px;
+      padding: 18px;
+    }
+
+    .workflow-card .card-top {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .workflow-card .tag {
+      text-align: left;
+    }
+
+    .workflow-card .resource-link {
+      margin-top: 14px;
+    }
+
+    .article-brief {
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(246, 248, 251, 0.96));
+    }
+
+    .article-layout {
+      display: block;
+      width: 100%;
+      max-width: none;
+      margin: 0;
+      align-items: start;
+    }
+
+    .article-main {
+      display: grid;
+      gap: 32px;
+      min-width: 0;
+    }
+
+    .article-block {
+      padding: 0;
+    }
+
+    .article-block h2 {
+      margin: 0 0 14px;
+      font-size: clamp(26px, 3vw, 42px);
+      line-height: 1.05;
+      max-width: none;
+    }
+
+    .article-block h3 {
+      margin: 20px 0 8px;
+      color: #111827;
+      font-size: 18px;
+      line-height: 1.24;
+    }
+
+    .article-block p {
+      max-width: none;
+      margin: 0 0 14px;
+      color: #334155;
+      font-size: 17px;
+      line-height: 1.68;
+    }
+
+    .article-lede {
+      color: #1f2937;
+      font-size: 20px;
+      line-height: 1.58;
+      font-weight: 720;
+    }
+
+    .article-note {
+      margin-top: 18px;
+      padding: 18px;
+      border-left: 4px solid var(--teal);
+      border-radius: 0 8px 8px 0;
+      background: #effaf8;
+      color: #26413f;
+      font-size: 15px;
+      line-height: 1.62;
+    }
+
+    .source-link {
+      color: var(--teal-dark);
+      font-weight: 850;
+      text-decoration: underline;
+      text-decoration-color: rgba(15, 118, 110, 0.28);
+      text-underline-offset: 3px;
+    }
+
+    .article-list {
+      display: grid;
+      gap: 12px;
+      margin: 18px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .article-list li {
+      padding: 16px 18px;
+      border: 1px solid #dbe7ef;
+      border-radius: 8px;
+      background: #fff;
+      color: #334155;
+      font-size: 15px;
+      line-height: 1.55;
+      box-shadow: 0 8px 20px rgba(17, 24, 39, 0.05);
+    }
+
+    .article-list strong {
+      display: block;
+      margin-bottom: 4px;
+      color: #111827;
+      font-size: 16px;
+    }
+
+    .source-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .source-pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 7px 11px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 118, 110, 0.20);
+      color: var(--teal-dark);
+      background: #fff;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .architecture-card {
+      min-width: 0;
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--white);
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .architecture-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 5px;
+      background: linear-gradient(90deg, var(--red), var(--teal), var(--blue), var(--gold));
+    }
+
+    .arch-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin: 6px 0 20px;
+    }
+
+    .arch-title h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 0 11px;
+      border-radius: 999px;
+      color: #3730a3;
+      background: #eef2ff;
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .flow {
+      display: grid;
+      gap: 12px;
+    }
+
+    .flow-row {
+      display: grid;
+      grid-template-columns: 118px 1fr;
+      gap: 12px;
+    }
+
+    .flow-label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 72px;
+      padding: 10px;
+      border-radius: 8px;
+      color: #fff;
+      text-align: center;
+      font-weight: 850;
+      font-size: 13px;
+    }
+
+    .label-red { background: var(--red); }
+    .label-teal { background: var(--teal); }
+    .label-blue { background: var(--blue); }
+    .label-gold { background: var(--gold); }
+
+    .flow-items {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .flow-item {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 72px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--soft);
+      color: #354052;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .calculator-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .calculator-main {
+      min-width: 0;
+      padding: 28px;
+      background:
+        radial-gradient(circle at 18% 0%, rgba(37, 99, 235, 0.08), transparent 26%),
+        linear-gradient(180deg, #fff, #fbfdff);
+    }
+
+    .calculator-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 6px;
+      border-radius: 999px;
+      background: var(--soft);
+      margin-bottom: 24px;
+    }
+
+    .calculator-tab {
+      min-height: 42px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      color: #111827;
+      font-weight: 850;
+      font-size: 14px;
+    }
+
+    .calculator-tab.active {
+      color: #fff;
+      background: linear-gradient(135deg, #4f46e5, #0ea5e9 72%, #67e8f9);
+      box-shadow: 0 12px 24px rgba(37, 99, 235, 0.20);
+    }
+
+    .calculator-form {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .calculator-field,
+    .calculator-slider {
+      min-width: 0;
+    }
+
+    .calculator-label {
+      display: block;
+      margin-bottom: 8px;
+      color: #111827;
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .calculator-input,
+    .calculator-select {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 48px;
+      padding: 0 14px;
+      border: 1px solid #dbe5ee;
+      border-radius: 8px;
+      color: #354052;
+      background: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+    }
+
+    .calculator-select::after {
+      content: "v";
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .calculator-slider {
+      grid-column: 1 / -1;
+      margin-top: 14px;
+    }
+
+    .slider-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 188px;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .slider-track {
+      position: relative;
+      height: 6px;
+      border-radius: 999px;
+      background: #eef3f7;
+      overflow: hidden;
+    }
+
+    .slider-track::before {
+      content: "";
+      position: absolute;
+      inset: 0 58% 0 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #4f46e5, #0ea5e9);
+    }
+
+    .slider-track::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 42%;
+      width: 18px;
+      height: 18px;
+      border: 2px solid #dbe5ee;
+      border-radius: 50%;
+      background: #fff;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 3px 10px rgba(17, 24, 39, 0.12);
+    }
+
+    .calculator-note {
+      grid-column: 1 / -1;
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .calculator-total {
+      display: grid;
+      align-content: start;
+      gap: 20px;
+      padding: 28px;
+      border-left: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 18% 16%, rgba(15, 118, 110, 0.12), transparent 28%),
+        #fff;
+    }
+
+    .estimate-label {
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 800;
+      text-decoration: underline;
+      text-decoration-style: dashed;
+      text-underline-offset: 4px;
+    }
+
+    .estimate-value {
+      margin: 4px 0 0;
+      color: #050505;
+      font-size: clamp(42px, 5vw, 58px);
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .credit-box {
+      padding: 16px;
+      border-radius: 8px;
+      color: #166534;
+      background: #e9f9ef;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .credit-box strong {
+      display: block;
+      margin-bottom: 6px;
+      color: #166534;
+      font-size: 16px;
+    }
+
+    .cost-lines {
+      display: grid;
+      gap: 10px;
+    }
+
+    .cost-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      color: #111827;
+      font-size: 15px;
+      font-weight: 850;
+    }
+
+    .calculator-actions {
+      display: grid;
+      gap: 12px;
+    }
+
+    .calculator-actions .cta,
+    .calculator-actions .resource-link {
+      width: 100%;
+      margin-top: 0;
+    }
+
+    .section {
+      padding: 64px 0;
+    }
+
+    .section-header {
+      max-width: none;
+      margin-bottom: 30px;
+    }
+
+    .kicker {
+      color: var(--teal-dark);
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin: 10px 0 12px;
+      font-size: clamp(30px, 4vw, 48px);
+      line-height: 1.06;
+      letter-spacing: 0;
+      color: #111827;
+    }
+
+    .section-header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.62;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card,
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .card {
+      min-height: 228px;
+      padding: 22px;
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: #bad3e3;
+      box-shadow: var(--shadow-hover);
+    }
+
+    .card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .card-icon {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 8px;
+      color: #fff;
+      font-weight: 900;
+      font-size: 13px;
+    }
+
+    .icon-teal { background: var(--teal); }
+    .icon-blue { background: var(--blue); }
+    .icon-red { background: var(--red); }
+    .icon-gold { background: var(--gold); }
+    .icon-green { background: var(--green); }
+
+    .tag {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-align: right;
+    }
+
+    .card h3 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      line-height: 1.2;
+      color: #111827;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.62;
+    }
+
+    .customer-rail {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(360px, 1fr);
+      gap: 16px;
+      overflow-x: auto;
+      padding: 4px 2px 20px;
+      scroll-snap-type: x mandatory;
+      scrollbar-color: #cbd5e1 transparent;
+    }
+
+    .customer-card {
+      min-height: 470px;
+      min-width: 0;
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: var(--shadow-soft);
+      scroll-snap-align: start;
+      transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+    }
+
+    .customer-card:hover {
+      transform: translateY(-3px);
+      border-color: #bad3e3;
+      box-shadow: var(--shadow-hover);
+    }
+
+    .customer-visual {
+      display: grid;
+      min-height: 124px;
+      margin: -4px -4px 20px;
+      padding: 18px;
+      place-items: center;
+      border-radius: 8px;
+      border: 1px solid #e3ebf2;
+      background:
+        radial-gradient(circle at 16% 18%, rgba(15, 118, 110, 0.12), transparent 26%),
+        radial-gradient(circle at 84% 22%, rgba(37, 99, 235, 0.12), transparent 28%),
+        linear-gradient(135deg, #f8fbfd, #eef6f8);
+      overflow: hidden;
+    }
+
+    .logo-plaque {
+      display: grid;
+      width: min(82%, 250px);
+      min-height: 86px;
+      place-items: center;
+      padding: 18px 28px;
+      border: 1px solid #e6eef5;
+      border-radius: 42px 0 42px 0;
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(23, 32, 42, 0.06);
+    }
+
+    .customer-visual img {
+      display: block;
+      max-width: 82%;
+      max-height: 86px;
+      object-fit: contain;
+    }
+
+    .customer-visual .logo-plaque img {
+      max-width: 100%;
+      max-height: 54px;
+      object-fit: contain;
+    }
+
+    .customer-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .customer-name {
+      color: var(--ink);
+      font-size: 28px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+
+    .customer-tag {
+      color: var(--teal-dark);
+      background: #effaf8;
+      border: 1px solid #b9d9d6;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .customer-card h3 {
+      margin: 0 0 12px;
+      font-size: 22px;
+      line-height: 1.18;
+      color: #111827;
+    }
+
+    .customer-card p {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.62;
+    }
+
+    .metric-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 18px 0;
+    }
+
+    .metric {
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: #354052;
+      background: var(--soft);
+      border: 1px solid var(--line);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .quote {
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 750;
+      line-height: 1.56;
+    }
+
+    .quote span {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .logo-banner {
+      margin-top: 22px;
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      overflow: hidden;
+    }
+
+    .logo-banner-label {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .logo-marquee {
+      width: 100%;
+      overflow: hidden;
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+      mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    }
+
+    .logo-track {
+      display: flex;
+      width: max-content;
+      gap: 12px;
+      animation: logo-scroll 30s linear infinite;
+    }
+
+    .logo-tile {
+      display: grid;
+      width: 154px;
+      height: 72px;
+      flex: 0 0 auto;
+      place-items: center;
+      padding: 12px 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--white);
+      transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+    }
+
+    .logo-tile:hover {
+      transform: translateY(-2px);
+      border-color: #bad3e3;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .logo-tile img {
+      display: block;
+      max-width: 100%;
+      max-height: 42px;
+      object-fit: contain;
+      opacity: 0.94;
+    }
+
+    .logo-tile.text-logo {
+      color: #354052;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    @keyframes logo-scroll {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 0.92fr) minmax(360px, 1.08fr);
+      gap: 24px;
+      align-items: start;
+    }
+
+    .panel {
+      padding: 24px;
+    }
+
+    .meeting-panel {
+      margin-bottom: 18px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 253, 0.98));
+    }
+
+    .meeting-panel p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .panel h3 {
+      margin: 0 0 14px;
+      font-size: 24px;
+      color: #111827;
+    }
+
+    .check-list {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .check-list li {
+      display: grid;
+      grid-template-columns: 26px 1fr;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .check {
+      display: grid;
+      width: 24px;
+      height: 24px;
+      place-items: center;
+      border-radius: 8px;
+      color: #fff;
+      background: var(--teal);
+      font-weight: 900;
+      font-size: 14px;
+    }
+
+    .proof-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .proof {
+      display: grid;
+      grid-template-columns: 168px 1fr;
+      gap: 22px;
+      min-height: 188px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(135deg, #fff, var(--surface));
+      align-items: center;
+      box-shadow: var(--shadow-soft);
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .proof:hover {
+      transform: translateY(-2px);
+      border-color: #bad3e3;
+      box-shadow: var(--shadow-hover);
+    }
+
+    .proof-visual {
+      display: grid;
+      width: 156px;
+      height: 126px;
+      place-items: center;
+      padding: 10px;
+      border: 1px solid #d7e4ef;
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at 16% 20%, rgba(37, 99, 235, 0.10), transparent 28%),
+        radial-gradient(circle at 88% 72%, rgba(15, 118, 110, 0.12), transparent 30%),
+        #fff;
+      overflow: hidden;
+    }
+
+    .proof-visual img {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .proof-copy {
+      min-width: 0;
+    }
+
+    .proof strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 16px;
+      color: #111827;
+    }
+
+    .proof span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .proof-copy > span {
+      display: block;
+    }
+
+    .proof-metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 12px;
+    }
+
+    .proof .proof-metric {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: #354052;
+      background: var(--soft);
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 1.2;
+    }
+
+    .proof .resource-link {
+      margin-top: 12px;
+    }
+
+    .cta-band {
+      padding: 54px 0 82px;
+    }
+
+    .cta-inner {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: center;
+      padding: 30px;
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at 12% 16%, rgba(15, 118, 110, 0.26), transparent 30%),
+        linear-gradient(135deg, #111827, #17202a 58%, #0f172a);
+      color: #fff;
+      box-shadow: 0 24px 60px rgba(17, 24, 39, 0.22);
+    }
+
+    .cta-inner h2 {
+      margin: 0 0 8px;
+      font-size: clamp(28px, 4vw, 42px);
+      color: #fff;
+    }
+
+    .cta-inner p {
+      margin: 0;
+      color: #cbd5e1;
+      font-size: 17px;
+    }
+
+    .footer {
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+      background: rgba(248, 250, 252, 0.72);
+    }
+
+    .footer-inner {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      padding: 24px 0;
+    }
+
+    .scale-signal-section {
+      padding: 14px 0 82px;
+    }
+
+    .scale-signal-module {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 0.96fr) minmax(500px, 1.04fr);
+      overflow: hidden;
+      border: 1px solid rgba(215, 225, 234, 0.92);
+      border-radius: 14px;
+      background:
+        radial-gradient(circle at 74% 18%, rgba(15, 118, 110, 0.08), transparent 28%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 252, 0.96));
+      box-shadow: var(--shadow);
+      isolation: isolate;
+    }
+
+    .scale-signal-module::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      z-index: 3;
+      height: 4px;
+      background: linear-gradient(90deg, var(--red), #d97706, var(--teal), var(--blue));
+    }
+
+    .scale-visual-panel {
+      position: relative;
+      min-height: 620px;
+      overflow: hidden;
+      background: #f6f2eb;
+    }
+
+    .scale-visual-panel img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 620px;
+      object-fit: cover;
+      object-position: 44% center;
+      filter: saturate(0.98) contrast(1.02);
+      transform: scale(1.01);
+    }
+
+    .scale-visual-panel::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, rgba(251, 253, 255, 0) 0%, rgba(251, 253, 255, 0.08) 54%, rgba(251, 253, 255, 0.96) 100%),
+        linear-gradient(180deg, rgba(17, 24, 39, 0.08), transparent 26%, rgba(17, 24, 39, 0.05));
+      pointer-events: none;
+    }
+
+    .scale-panel-copy {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 44px 30px 44px 34px;
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.96)),
+        radial-gradient(circle at 100% 0%, rgba(49, 94, 134, 0.10), transparent 34%);
+    }
+
+    .scale-panel-copy h2 {
+      margin: 12px 0 0;
+      color: #101827;
+      max-width: 720px;
+      font-size: clamp(28px, 2.7vw, 36px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .scale-intro {
+      margin: 18px 0 0;
+      color: var(--muted);
+      max-width: 760px;
+      font-size: 15px;
+      line-height: 1.54;
+    }
+
+    .scale-metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .scale-metric-card {
+      position: relative;
+      min-height: 190px;
+      padding: 18px;
+      overflow: hidden;
+      border: 1px solid rgba(215, 225, 234, 0.92);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 14px 30px rgba(17, 24, 39, 0.055);
+    }
+
+    .scale-metric-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: var(--accent, var(--teal));
+    }
+
+    .scale-metric-value {
+      display: block;
+      color: #0f172a;
+      font-size: clamp(30px, 4.2vw, 44px);
+      font-weight: 920;
+      line-height: 0.98;
+      letter-spacing: 0;
+    }
+
+    .scale-metric-label {
+      display: block;
+      margin-top: 8px;
+      color: #273444;
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 1.28;
+    }
+
+    .scale-metric-card p {
+      margin: 14px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.52;
+    }
+
+    .scale-bottom-statement {
+      margin-top: 18px;
+      padding: 24px 28px;
+      border: 1px solid rgba(15, 118, 110, 0.18);
+      border-radius: 14px;
+      background:
+        radial-gradient(circle at 96% 8%, rgba(15, 118, 110, 0.10), transparent 30%),
+        linear-gradient(135deg, rgba(239, 250, 248, 0.92), rgba(255, 255, 255, 0.96));
+      box-shadow: 0 16px 34px rgba(17, 24, 39, 0.07);
+    }
+
+    .scale-bottom-statement strong {
+      display: block;
+      max-width: 1080px;
+      color: #0f172a;
+      font-size: clamp(18px, 1.55vw, 22px);
+      font-weight: 760;
+      line-height: 1.48;
+      letter-spacing: 0;
+    }
+
+    .scale-bottom-statement .highlight {
+      color: var(--teal-dark);
+      font-weight: 920;
+    }
+
+    @media (max-width: 980px) {
+      .hero,
+      .split,
+      .article-layout,
+      .calculator-shell,
+      .scale-signal-module,
+      .cta-inner {
+        grid-template-columns: 1fr;
+      }
+
+      .scale-visual-panel,
+      .scale-visual-panel img {
+        min-height: 480px;
+      }
+
+      .scale-panel-copy {
+        padding: 34px 24px 28px;
+      }
+
+      .calculator-total {
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .cards {
+        grid-template-columns: 1fr;
+      }
+
+      .snapshot-grid,
+      .workflow-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .visual-lane {
+        grid-template-columns: 1fr;
+      }
+
+      .proof {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .container {
+        width: 100%;
+        max-width: 100%;
+        padding: 0 28px;
+        overflow: visible;
+      }
+
+      .nav-inner {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 16px;
+        padding: 18px 0;
+      }
+
+      .nav-links {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, max-content));
+        width: 100%;
+        justify-content: flex-start;
+        gap: 12px 18px;
+      }
+
+      .nav-links .cta,
+      .cta-inner .cta {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        white-space: normal;
+        text-align: center;
+        line-height: 1.25;
+        padding: 11px 14px;
+      }
+
+      .nav-links .cta {
+        grid-column: 1 / -1;
+      }
+
+      .hero {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
+        padding: 38px 28px 36px;
+      }
+
+      .hero > * {
+        max-width: 100%;
+      }
+
+      .hero-heading,
+      .hero-copy-block,
+      .section-header,
+      .article-layout,
+      .article-main,
+      .cards,
+      .snapshot-grid,
+      .workflow-grid,
+      .split,
+      .calculator-shell,
+      .proof-grid,
+      .cta-inner,
+      .meeting-panel {
+        width: 100%;
+        max-width: calc(100vw - 72px);
+      }
+
+      .hero-visual-card,
+      .logo-banner {
+        width: 100%;
+        max-width: calc(100vw - 56px);
+      }
+
+      .resource-row {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+        width: 100%;
+        max-width: calc(100vw - 72px);
+      }
+
+      .resource-link {
+        width: fit-content;
+      }
+
+      .hero-copy-block {
+        margin-top: 22px;
+      }
+
+      .hero-action {
+        margin-top: 20px;
+      }
+
+      .hero::before {
+        inset: 18px 28px auto;
+      }
+
+      h1 {
+        max-width: 100%;
+        font-size: 28px;
+        line-height: 1.08;
+      }
+
+      h2 {
+        font-size: 25px;
+        line-height: 1.14;
+      }
+
+      h1 span {
+        display: block;
+      }
+
+      h1 .account-highlight {
+        display: inline;
+      }
+
+      .hero-copy,
+      .section-header p {
+        max-width: 100%;
+        font-size: 15px;
+        overflow-wrap: anywhere;
+      }
+
+      .eyebrow {
+        border-radius: 8px;
+      }
+
+      .hero-visual-card {
+        width: 100%;
+        max-width: 100%;
+        margin-top: 34px;
+      }
+
+      .workflow-visual {
+        padding: 8px;
+      }
+
+      .visual-panel {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        min-height: auto;
+        padding: 14px;
+      }
+
+      .visual-head {
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .visual-head strong {
+        font-size: 17px;
+        overflow-wrap: anywhere;
+      }
+
+      .visual-panel *,
+      .visual-node,
+      .visual-core strong,
+      .visual-core span,
+      .stack-chip {
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+
+      .visual-badge {
+        white-space: normal;
+      }
+
+      .visual-node,
+      .visual-core,
+      .stack-strip {
+        min-width: 0;
+      }
+
+      .stack-items {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .stack-chip {
+        text-align: center;
+      }
+
+      .snapshot-grid,
+      .workflow-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-meta,
+      .flow-items,
+      .calculator-form,
+      .proof-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .calculator-main,
+      .calculator-total {
+        padding: 20px;
+      }
+
+      .slider-row {
+        grid-template-columns: 1fr;
+      }
+
+      .architecture-card,
+      .hero-visual-card,
+      .card,
+      .customer-card,
+      .panel,
+      .calculator-shell,
+      .cta-inner {
+        max-width: 100%;
+        overflow: hidden;
+      }
+
+      .flow-row {
+        grid-template-columns: 1fr;
+      }
+
+      .customer-rail {
+        grid-auto-columns: minmax(286px, 92%);
+      }
+
+      .customer-card-top {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .customer-visual {
+        min-height: 104px;
+      }
+
+      .customer-tag {
+        white-space: normal;
+      }
+
+      .logo-track {
+        animation-duration: 42s;
+      }
+
+      .logo-tile {
+        width: 136px;
+        height: 66px;
+      }
+
+      .scale-signal-section {
+        padding: 8px 0 54px;
+      }
+
+      .scale-signal-module,
+      .scale-metric-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .scale-visual-panel,
+      .scale-visual-panel img {
+        min-height: 420px;
+      }
+
+      .scale-panel-copy h2 {
+        font-size: 28px;
+        line-height: 1.08;
+        overflow-wrap: anywhere;
+      }
+
+      .scale-bottom-statement {
+        padding: 20px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .logo-track {
+        animation: none;
+        transform: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="nav">
+      <div class="container">
+        <div class="nav-inner">
+          <a class="brand" href="https://zilliz.com/?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo">
+            <svg class="brand-logo" width="97" height="40" viewBox="0 0 97 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Zilliz">
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M18.6541 27.0547V39.7949H21.1413V24.5393L27.7546 35.9938C28.503 35.6278 29.2221 35.2111 29.9074 34.7483L22.6675 22.2084L30.641 25.1105C31.0007 24.3705 31.2862 23.5877 31.4879 22.7719L27.007 21.141H39.7949V18.6538H24.5381L35.9936 12.04C35.6276 11.2916 35.2109 10.5725 34.748 9.8872L22.2832 17.0838L25.1605 9.1786C24.4221 8.81536 23.6406 8.52618 22.8259 8.32075L21.1413 12.9492V0H18.6541V15.257L12.04 3.80101C11.2916 4.16702 10.5725 4.58369 9.88716 5.04654L17.0968 17.534L9.17163 14.6495C8.80943 15.3884 8.52133 16.1702 8.31702 16.9852L12.9015 18.6538H0V21.141H15.2559L3.80081 27.7546C4.16682 28.503 4.58348 29.2221 5.04633 29.9074L17.6089 22.6545L14.6995 30.6478C15.44 31.0066 16.2231 31.291 17.0392 31.4915L18.6541 27.0547Z" fill="url(#zilliz-logo-gradient)"></path>
+              <rect x="46.0625" y="12.4359" width="11.3415" height="2.48718" fill="currentColor"></rect>
+              <rect x="85.3599" y="12.4359" width="11.3415" height="2.48718" fill="currentColor"></rect>
+              <rect x="67.0542" y="6.66563" width="2.68615" height="20.6933" fill="currentColor"></rect>
+              <rect x="61.085" y="12.4359" width="2.68615" height="14.9231" fill="currentColor"></rect>
+              <rect x="61.085" y="6.66564" width="2.68615" height="2.68615" fill="currentColor"></rect>
+              <rect x="45.7642" y="24.8718" width="11.9385" height="2.48718" fill="currentColor"></rect>
+              <path d="M45.7642 24.8718L54.2216 14.9231H57.4042L48.9467 24.8718H45.7642Z" fill="currentColor"></path>
+              <path d="M85.0615 24.8718L93.519 14.9231H96.7015L88.2441 24.8718H85.0615Z" fill="currentColor"></path>
+              <rect x="73.0234" y="6.66563" width="2.68615" height="20.6933" fill="currentColor"></rect>
+              <rect x="85.0615" y="24.8718" width="11.9385" height="2.48718" fill="currentColor"></rect>
+              <rect x="78.9927" y="12.4359" width="2.68615" height="14.9231" fill="currentColor"></rect>
+              <rect x="78.9927" y="6.66564" width="2.68615" height="2.68615" fill="currentColor"></rect>
+              <defs>
+                <linearGradient id="zilliz-logo-gradient" x1="8.45641" y1="4.2282" x2="29.0503" y2="37.6061" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#9D41FF"></stop>
+                  <stop offset="0.468794" stop-color="#2858FF"></stop>
+                  <stop offset="0.770884" stop-color="#29B8FF"></stop>
+                  <stop offset="1" stop-color="#00F0FF"></stop>
+                </linearGradient>
+              </defs>
+            </svg>
+          </a>
+          <nav class="nav-links" aria-label="Primary">
+            <a class="nav-link" href="#article-brief">Article</a>
+            <a class="nav-link" href="https://docs.zilliz.com/?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=nav_docs">Docs</a>
+            <a class="cta" href="https://zilliz.com/contact?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=nav_architecture_review">Book a 30-minute architecture review</a>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="container hero">
+        <div class="hero-heading">
+          <h1><span>Make <span class="account-highlight">Pinterest's</span></span> <span>Pin, board, and product</span> <span>retrieval a reusable</span> <span>AI infra boundary</span></h1>
+        </div>
+
+        <figure class="hero-visual-card" aria-label="Visual discovery content flowing into a vector retrieval layer and recommendation surfaces">
+          <img src="assets/hero-visual-discovery-v1.png" alt="Visual discovery content flowing into a vector retrieval layer and recommendation surfaces">
+        </figure>
+
+        <div class="hero-copy-block">
+          <p class="hero-copy">At Pinterest scale, visual discovery and commerce depend on candidate sets that connect fresh Pins, boards, products, advertiser creative, query intent, and taste signals before rankers decide what to show. As Homefeed, related Pins, visual search, shopping, AI-powered ads, Ask Pinterest, and MCP workflows reuse more retrieval context, the vector layer becomes an AI infrastructure boundary: freshness, filters, latency, cost, and ownership need to be measurable in one place. A useful next step is to pressure-test one bounded retrieval workflow and compare whether the serving boundary makes the handoff into Pinterest's ranking systems clearer.</p>
+          <div class="hero-action">
+            <a class="cta" href="https://zilliz.com/contact?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=hero_architecture_review">Book a 30-minute architecture review</a>
+          </div>
+          <div class="resource-row" aria-label="Related Zilliz resources">
+            <a class="resource-link" href="https://zilliz.com/vector-database-use-cases/recommender-system?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=hero_resource_recommender">Recommender systems</a>
+            <a class="resource-link" href="https://docs.zilliz.com/docs/filtered-search?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=hero_resource_filtered_search">Filtered search docs</a>
+            <a class="resource-link" href="https://zilliz.com/vector-database-use-cases/ai-agents?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=hero_resource_ai_agents">AI agents</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="scale-signal-section" id="scale-signals">
+        <div class="container">
+          <div class="scale-signal-module">
+            <div class="scale-visual-panel">
+              <img src="assets/pinterest-scale-signal-wall-v1.png" alt="Visual discovery signals flowing into a retrieval infrastructure layer">
+            </div>
+
+            <div class="scale-panel-copy">
+              <div class="kicker">Scale Signals</div>
+              <h2>Pinterest-scale retrieval needs explicit guarantees</h2>
+              <p class="scale-intro">631M users, 80B+ searches, 1.5B weekly saves, and graph-scale relationships create a retrieval problem before ranking begins: candidates need to be fresh, filtered, low-latency, and reusable across discovery, shopping, ads, and assistant workflows.</p>
+
+              <div class="scale-metric-grid">
+                <article class="scale-metric-card" style="--accent: #d62f3b;">
+                  <span class="scale-metric-value">631M</span>
+                  <span class="scale-metric-label">monthly active users</span>
+                  <p>Serving paths need predictable latency across discovery, shopping, ads, and assistant surfaces.</p>
+                </article>
+                <article class="scale-metric-card" style="--accent: #315e86;">
+                  <span class="scale-metric-value">80B+</span>
+                  <span class="scale-metric-label">monthly searches</span>
+                  <p>Search intent spans inspiration, product discovery, and commercial context before ranking takes over.</p>
+                </article>
+                <article class="scale-metric-card" style="--accent: #0f766e;">
+                  <span class="scale-metric-value">1.5B</span>
+                  <span class="scale-metric-label">Pins saved every week</span>
+                  <p>Saves create a fast-moving signal stream for taste, future intent, and freshness.</p>
+                </article>
+                <article class="scale-metric-card" style="--accent: #b7791f;">
+                  <span class="scale-metric-value">10B+</span>
+                  <span class="scale-metric-label">graph nodes</span>
+                  <p>Graph context, embeddings, and metadata need lifecycle controls across retrieval systems.</p>
+                </article>
+              </div>
+            </div>
+          </div>
+
+          <div class="scale-bottom-statement">
+            <strong>At Pinterest scale, retrieval optimization is a <span class="highlight">total-cost question</span>: reduce duplicated pipelines, wasted candidate generation, over-provisioned serving paths, and repeated engineering work across discovery, shopping, ads, and assistant surfaces.</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="section article-brief" id="article-brief">
+        <div class="container">
+          <div class="article-layout">
+            <article class="article-main">
+              <section class="article-block" id="discovery-to-action">
+                <div class="kicker">Technical Perspective</div>
+                <h2>Pinterest is turning discovery into action</h2>
+                <p class="article-lede">Pinterest's business has been moving beyond a visual inspiration feed into a broader system for shopping decisions, advertiser performance, assistant-style workflows, and intent-rich media signals. Boards, search, visual discovery, shopping catalogs, Top of Search ads, Performance+ creative selection, Business Assistant, Pinterest MCP, Ask Pinterest, and tvScientific all point in the same direction: discovery is expected to become more actionable.</p>
+                <p>That shift changes the infrastructure problem. A user saving ideas for a room, a shopper comparing products, an advertiser evaluating creative, a partner copilot looking for campaign context, and an internal analytics workflow do not ask the same question. But they often need overlapping context: Pins, boards, products, ad creatives, campaign and keyword signals, query intent, taste patterns, documents, and metadata.</p>
+                <p><strong>The next retrieval challenge is not simply finding visually similar items. It is serving the right context, with the right constraints, before each product surface applies its own ranking, policy, auction, or generation logic.</strong></p>
+              </section>
+
+              <section class="article-block" id="platform-boundary">
+                <div class="kicker">Platform Boundary</div>
+                <h2>The retrieval-to-ranking handoff needs a clearer boundary</h2>
+                <p>As AI workflows spread across discovery, shopping, ads, assistant context, and analytics, retrieval stops being a feature-specific implementation detail. The same work appears in different forms: candidate generation for Pins and products, contextual ads retrieval, campaign insight retrieval, table and documentation search, relevance evaluation, and embedding-based ranking research.</p>
+                <p>Some of that work should stay close to the product surface. Pinterest's rankers, business logic, safety rules, auction mechanics, and assistant experiences should remain central. The question is which responsibilities should be made explicit before that layer takes over.</p>
+                <p><strong>The handoff before ranking should make the key guarantees explicit: candidate IDs, object type, retrieval score, metadata used for filtering, freshness state, model and index version, latency envelope, and fallback behavior.</strong> If those guarantees are different for every surface, each team debugs quality, latency, and freshness in its own way. If the handoff is consistent, product teams can focus on ranking and experience while the platform owns the retrieval mechanics that repeat.</p>
+                <ul class="article-list">
+                  <li><strong>Candidate objects:</strong> Pins, boards, products, creative assets, query/session context, campaign signals, and internal knowledge objects.</li>
+                  <li><strong>Serving guarantees:</strong> recall, filtered recall, p95/p99 latency, freshness, failure mode, and ranker handoff.</li>
+                  <li><strong>Lifecycle controls:</strong> embedding refresh, index versioning, backfills, rollback, ownership, and observability.</li>
+                </ul>
+              </section>
+
+              <section class="article-block" id="fresh-filtered">
+                <div class="kicker">Fresh, Filtered Retrieval</div>
+                <h2>Freshness and filters are part of retrieval quality</h2>
+                <p>For Pinterest, freshness is not one update path. A new Pin, product availability change, price update, local inventory signal, advertiser constraint, creative asset, policy change, or trend shift can all affect which candidates should be available. Some updates arrive through streaming paths, some through batch jobs, some through embedding refresh, and some through model or metadata changes.</p>
+                <p>That makes filtered retrieval an architecture issue, not a downstream cleanup step. Shopping and ads workflows need vector similarity to work with merchant, category, price, locale, policy, safety, advertiser eligibility, campaign context, creative format, and recency. If those constraints are applied only after vector search, the system can over-fetch, lose recall, or make latency less predictable.</p>
+                <p><strong>Filtered recall should be measured directly, because the business constraints are part of relevance.</strong> A retrieval layer that cannot explain how filters affected the candidate set is difficult for rankers, product teams, and platform owners to trust.</p>
+                <p>The same issue shows up in online and offline consistency. Offline systems may produce embeddings, model upgrades, relevance labels, quality signals, metadata enrichment, and backfills. Online services need those improvements in a low-latency serving path. The challenge is keeping that path consistent without every surface maintaining its own glue code between streaming, batch, embedding generation, index refresh, and serving.</p>
+              </section>
+
+              <section class="article-block" id="workflow-first">
+                <div class="kicker">Architecture Path</div>
+                <h2>Start with one workflow, not a platform migration</h2>
+                <p>The next architecture step does not need to be a broad platform migration or a replacement conversation. It should start with one workflow where retrieval quality, freshness, filters, latency, and ownership are measurable. Good candidates include Pin/product retrieval, visual search candidate generation, ads creative or product retrieval, assistant context, or analytics and documentation retrieval.</p>
+                <p>For that workflow, define the candidate objects, embedding types, metadata filters, freshness path, update cadence, ranker or application handoff, p95/p99 latency target, filtered-recall benchmark, index lifecycle, rollback path, cost model, and ownership boundary. Then ask a narrow question: does the retrieval layer reduce product-specific glue code, make filtered recall more predictable, and create a cleaner path from offline improvements back into online serving?</p>
+                <p><strong>If Zilliz fits, it is at this boundary:</strong> a dedicated vector layer for workloads that need high-throughput ANN, hybrid vector and metadata filtering, multi-vector schemas, faster backfills, index lifecycle control, and observable handoff into ranking or application logic. The potential gain is not more vector search for its own sake. It is clearer retrieval ownership, more predictable serving behavior, and less duplicated infrastructure across product surfaces.</p>
+              </section>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="architecture-fit">
+        <div class="container">
+          <div class="split">
+            <div class="section-header">
+              <div class="kicker">Architecture fit</div>
+              <h2>Fit retrieval into the data and AI platform</h2>
+              <p>If embeddings and metadata already move through streaming updates, Spark jobs, Iceberg/S3 tables, Kubernetes-based compute, and AI platform workflows, the vector layer has to consume fresh signals, serve filtered vector search, expose observable handoff guarantees to rankers, and avoid becoming another isolated stateful system.</p>
+            </div>
+            <div class="architecture-card" aria-label="Stack-aware architecture fit for Pinterest retrieval workflows">
+              <div class="arch-title">
+                <h2>Stack-aware retrieval path</h2>
+                <span class="pill">Data-plane fit</span>
+              </div>
+              <div class="flow">
+                <div class="flow-row">
+                  <div class="flow-label label-blue">Data plane</div>
+                  <div class="flow-items">
+                    <div class="flow-item">CDC / Kafka / Flink</div>
+                    <div class="flow-item">Spark / Iceberg / S3</div>
+                    <div class="flow-item">Kubernetes / EKS</div>
+                  </div>
+                </div>
+                <div class="flow-row">
+                  <div class="flow-label label-teal">Retrieval layer</div>
+                  <div class="flow-items">
+                    <div class="flow-item">Model + embedding refresh</div>
+                    <div class="flow-item">Vector retrieval boundary</div>
+                    <div class="flow-item">Hybrid vector + scalar filters</div>
+                  </div>
+                </div>
+                <div class="flow-row">
+                  <div class="flow-label label-red">Product surfaces</div>
+                  <div class="flow-items">
+                    <div class="flow-item">Homefeed / related Pins</div>
+                    <div class="flow-item">Visual search / shopping</div>
+                    <div class="flow-item">Ads / Ask Pinterest / MCP</div>
+                  </div>
+                </div>
+                <div class="flow-row">
+                  <div class="flow-label label-gold">Evaluation</div>
+                  <div class="flow-items">
+                    <div class="flow-item">Recall and relevance</div>
+                    <div class="flow-item">p95/p99 latency and freshness</div>
+                    <div class="flow-item">Cost and platform ownership</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container">
+          <div class="section-header">
+            <div class="kicker">What We Can Pressure-Test</div>
+            <h2>Define the retrieval slice before discussing technology</h2>
+            <p>Start with one workflow, then define the candidate objects, embedding types, filter requirements, freshness path, latency target, benchmark method, stack integration points, and ownership handoff.</p>
+          </div>
+          <div class="cards">
+            <article class="card">
+              <div class="card-top">
+                <div class="card-icon icon-red">01</div>
+                <div class="tag">Objects</div>
+              </div>
+              <h3>Candidate objects and embeddings</h3>
+              <p>Identify which Pins, boards, products, creative assets, query/session signals, user-taste context, tool metadata, or assistant resources need vector representation.</p>
+            </article>
+            <article class="card">
+              <div class="card-top">
+                <div class="card-icon icon-teal">02</div>
+                <div class="tag">Freshness</div>
+              </div>
+              <h3>Filter and freshness path</h3>
+              <p>Define which category, merchant, locale, inventory, price, safety, policy, advertiser, availability, and freshness constraints must happen during retrieval.</p>
+            </article>
+            <article class="card">
+              <div class="card-top">
+                <div class="card-icon icon-blue">03</div>
+                <div class="tag">Benchmark</div>
+              </div>
+              <h3>Benchmark and ranking handoff</h3>
+              <p>Pressure-test recall, relevance, p95/p99 latency, filter selectivity, update freshness, cost, observability, failure behavior, and the handoff to ranking.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="cost-calculator">
+        <div class="container">
+          <div class="section-header">
+            <div class="kicker">Cost Modeling</div>
+            <h2>Estimate retrieval cost before expanding the surface</h2>
+            <p>Latency and relevance matter, but platform teams also need to understand what happens to cost as entity count, vector dimension, storage, query capacity, metadata filtering, and freshness requirements grow across discovery, shopping, ads, and assistant retrieval paths. This preview points to the live Zilliz calculator for current pricing.</p>
+          </div>
+          <div class="calculator-shell" aria-label="Illustrative Zilliz cost calculator preview">
+            <div class="calculator-main">
+              <div class="calculator-tabs" aria-hidden="true">
+                <div class="calculator-tab active">Dedicated</div>
+                <div class="calculator-tab">Serverless</div>
+              </div>
+              <div class="calculator-form">
+                <div class="calculator-field">
+                  <span class="calculator-label">Cloud Provider</span>
+                  <div class="calculator-select">Amazon Web Services</div>
+                </div>
+                <div class="calculator-field">
+                  <span class="calculator-label">Region</span>
+                  <div class="calculator-select">us-west-2 (Oregon)</div>
+                </div>
+                <div class="calculator-field">
+                  <span class="calculator-label">Pricing Plan</span>
+                  <div class="calculator-select">Standard</div>
+                </div>
+                <div class="calculator-field">
+                  <span class="calculator-label">Cluster Type</span>
+                  <div class="calculator-select">Capacity-optimized</div>
+                </div>
+                <div class="calculator-slider">
+                  <span class="calculator-label">Number of Entities</span>
+                  <div class="slider-row">
+                    <div class="slider-track" aria-hidden="true"></div>
+                    <div class="calculator-input"><span>1</span><span>Million</span></div>
+                  </div>
+                </div>
+                <div class="calculator-slider">
+                  <span class="calculator-label">Vector Dimensions</span>
+                  <div class="slider-row">
+                    <div class="slider-track" aria-hidden="true"></div>
+                    <div class="calculator-input"><span>768</span><span>FP32</span></div>
+                  </div>
+                </div>
+                <p class="calculator-note">Preview only. Use the live calculator for the latest pricing by cloud, region, cluster type, storage, and query capacity.</p>
+              </div>
+            </div>
+            <div class="calculator-total">
+              <div>
+                <div class="estimate-label">Example estimated monthly cost</div>
+                <div class="estimate-value">$126.10</div>
+              </div>
+              <div class="credit-box">
+                <strong>Validate cost with free credits</strong>
+                Model one retrieval workflow, then compare the estimate against observed latency, QPS, storage, and freshness requirements.
+              </div>
+              <div class="cost-lines">
+                <div class="cost-line"><span>1 Query CU</span><span>$126.00</span></div>
+                <div class="cost-line"><span>4.05 GB Storage</span><span>$0.10</span></div>
+              </div>
+              <div class="calculator-actions">
+                <a class="cta" href="https://zilliz.com/pricing?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=cost_calculator_preview#calculator">Open the live calculator</a>
+                <a class="resource-link" href="https://zilliz.com/pricing?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=pricing_overview">View Zilliz pricing</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="customer-proof">
+        <div class="container">
+          <div class="section-header">
+            <div class="kicker">Similar Production Patterns</div>
+            <h2>How adjacent teams handle visual and commerce retrieval at scale</h2>
+            <p>These customer stories show adjacent patterns around large catalogs, visual search, AI shopping, low-latency retrieval, fresh indexing, and simpler retrieval operations. They are not Pinterest comparisons; they are production patterns to pressure-test.</p>
+          </div>
+          <div class="customer-rail" aria-label="Similar Zilliz customer stories">
+            <article class="customer-card">
+              <div class="customer-visual">
+                <span class="logo-plaque"><img src="assets/leboncoin-logo.png" alt="leboncoin logo"></span>
+              </div>
+              <div class="customer-card-top">
+                <div class="customer-name">leboncoin</div>
+                <div class="customer-tag">Visual commerce</div>
+              </div>
+              <h3>Modernized product recommendations with visual search</h3>
+              <p>Leboncoin used Zilliz Cloud to support Find Similar Items and reverse image search across a large re-commerce marketplace.</p>
+              <div class="metric-row">
+                <span class="metric">80M active ads</span>
+                <span class="metric">Sub-200ms target</span>
+                <span class="metric">Visual search MVP</span>
+              </div>
+              <div class="quote">"speed and scale we needed to power visual search"<span>Yann Lemonnier, ML Engineer at Adevinta</span></div>
+              <a class="resource-link" href="https://zilliz.com/customers/leboncoin?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=customer_leboncoin">Read the leboncoin story</a>
+            </article>
+            <article class="customer-card">
+              <div class="customer-visual">
+                <span class="logo-plaque"><img src="assets/123rf-logo.png" alt="123RF logo"></span>
+              </div>
+              <div class="customer-card-top">
+                <div class="customer-name">123RF</div>
+                <div class="customer-tag">Image search</div>
+              </div>
+              <h3>Scaled visual search across a massive image library</h3>
+              <p>123RF uses Zilliz Cloud for text-to-image and reverse image search, with daily embedding ingestion and production latency improvements.</p>
+              <div class="metric-row">
+                <span class="metric">200M+ vectors</span>
+                <span class="metric">&lt;50ms latency</span>
+                <span class="metric">50% cost savings</span>
+              </div>
+              <div class="quote">"search will scale with our business instead of holding it back"<span>Su-Meng Yong, Engineering Team Lead at 123RF</span></div>
+              <a class="resource-link" href="https://zilliz.com/customers/123rf?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=customer_123rf">Read the 123RF story</a>
+            </article>
+            <article class="customer-card">
+              <div class="customer-visual">
+                <span class="logo-plaque"><img src="assets/poizon-logo.png" alt="Poizon logo"></span>
+              </div>
+              <div class="customer-card-top">
+                <div class="customer-name">Poizon</div>
+                <div class="customer-tag">AI shopping</div>
+              </div>
+              <h3>Runs latency-critical AI shopping workloads at billion scale</h3>
+              <p>Poizon uses Zilliz Cloud for performance-critical visual search and AI authentication paths while keeping other workloads cost-optimized.</p>
+              <div class="metric-row">
+                <span class="metric">Billion-scale search</span>
+                <span class="metric">Sub-90ms response</span>
+                <span class="metric">3-cluster complexity removed</span>
+              </div>
+              <a class="resource-link" href="https://zilliz.com/customers/poizon?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=customer_poizon">Read the Poizon story</a>
+            </article>
+          </div>
+          <div class="logo-banner" aria-label="Related Zilliz and Milvus customer logos">
+            <div class="logo-marquee">
+              <div class="logo-track">
+                <a class="logo-tile" href="https://zilliz.com/customers/leboncoin?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_leboncoin"><img src="assets/leboncoin-logo.png" alt="leboncoin"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/123rf?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_123rf"><img src="assets/123rf-logo.png" alt="123RF"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/poizon?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_poizon"><img src="assets/poizon-logo.png" alt="Poizon"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/picdmo?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_picdmo"><img src="assets/picdmo-logo.svg" alt="Picdmo"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/bigo?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_bigo"><img src="assets/bigo-logo.svg" alt="BIGO"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/mozat?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_mozat"><img src="assets/mozat-logo.svg" alt="Mozat"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/exa?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_exa"><img src="assets/exa-logo.png" alt="Exa"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/read-ai?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_read_ai"><img src="assets/read-ai-logo.svg" alt="Read AI"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/leboncoin?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_leboncoin_dup"><img src="assets/leboncoin-logo.png" alt="leboncoin"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/123rf?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_123rf_dup"><img src="assets/123rf-logo.png" alt="123RF"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/poizon?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_poizon_dup"><img src="assets/poizon-logo.png" alt="Poizon"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/picdmo?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_picdmo_dup"><img src="assets/picdmo-logo.svg" alt="Picdmo"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/bigo?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_bigo_dup"><img src="assets/bigo-logo.svg" alt="BIGO"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/mozat?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_mozat_dup"><img src="assets/mozat-logo.svg" alt="Mozat"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/exa?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_exa_dup"><img src="assets/exa-logo.png" alt="Exa"></a>
+                <a class="logo-tile" href="https://zilliz.com/customers/read-ai?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=logo_rail_read_ai_dup"><img src="assets/read-ai-logo.svg" alt="Read AI"></a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="zilliz-strength">
+        <div class="container">
+          <div class="section-header">
+            <div class="kicker">Production Signals</div>
+            <h2>Zilliz performance proof at production scale</h2>
+            <p>Zilliz has supported production retrieval workloads with measurable results across latency, QPS, vector scale, indexing freshness, cost reduction, and operational simplicity. These numbers provide evaluation anchors for a Pinterest workflow where retrieval must serve product surfaces before ranking without making platform ownership heavier.</p>
+          </div>
+          <div class="proof-grid">
+            <div class="proof">
+              <div class="proof-visual" aria-hidden="true"><img src="assets/proof-speed.png" alt=""></div>
+              <div class="proof-copy">
+                <strong>&lt;20ms response at 5K QPS</strong>
+                <span>Support low-latency multimodal search and recommendation serving when traffic spikes, entity counts grow, and freshness cannot be separated from serving.</span>
+                <div class="proof-metrics">
+                  <span class="proof-metric">&lt;20ms response</span>
+                  <span class="proof-metric">5K QPS</span>
+                  <span class="proof-metric">50M+ entities</span>
+                </div>
+              </div>
+            </div>
+            <div class="proof">
+              <div class="proof-visual" aria-hidden="true"><img src="assets/proof-reco-scale.png" alt=""></div>
+              <div class="proof-copy">
+                <strong>200M+ vectors, &lt;50ms latency, 50% lower cost</strong>
+                <span>Run visual and text-to-image retrieval across large media catalogs while improving latency and reducing production retrieval cost.</span>
+                <div class="proof-metrics">
+                  <span class="proof-metric">200M+ vectors</span>
+                  <span class="proof-metric">&lt;50ms latency</span>
+                  <span class="proof-metric">50% cost savings</span>
+                </div>
+              </div>
+            </div>
+            <div class="proof">
+              <div class="proof-visual" aria-hidden="true"><img src="assets/proof-resilience.png" alt=""></div>
+              <div class="proof-copy">
+                <strong>Millions indexed within hours, search stays online</strong>
+                <span>Use bulk import and recurring embedding ingestion patterns to keep fast-changing catalogs fresh while live search paths stay online.</span>
+                <div class="proof-metrics">
+                  <span class="proof-metric">Millions indexed in hours</span>
+                  <span class="proof-metric">Daily embedding ingestion</span>
+                  <span class="proof-metric">Search stays online</span>
+                </div>
+              </div>
+            </div>
+            <div class="proof">
+              <div class="proof-visual" aria-hidden="true"><img src="assets/proof-simple.png" alt=""></div>
+              <div class="proof-copy">
+                <strong>3-5x cost reduction and sub-90ms response</strong>
+                <span>Reduce infrastructure spend and simplify serving paths while keeping latency measurable for performance-critical retrieval workloads.</span>
+                <div class="proof-metrics">
+                  <span class="proof-metric">3-5x cost reduction</span>
+                  <span class="proof-metric">3-cluster complexity removed</span>
+                  <span class="proof-metric">Sub-90ms response</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-band">
+        <div class="container">
+          <div class="panel meeting-panel">
+            <div class="kicker">What we can review together</div>
+            <h3>Bring one retrieval workflow</h3>
+            <p>The meeting works best with one concrete surface where candidate quality, freshness, filtering, latency, cost, and ownership all matter: Homefeed, related Pins, visual search, shopping, ads retrieval, or assistant retrieval context.</p>
+            <ul class="check-list">
+              <li><span class="check">✓</span><span>Which candidate objects belong in the first evaluation: Pins, boards, products, advertiser creative, query/session context, or assistant knowledge.</span></li>
+              <li><span class="check">✓</span><span>How to model collections, partitions, metadata filters, multi-vector schemas, and access boundaries for that workflow.</span></li>
+              <li><span class="check">✓</span><span>How to keep embeddings, catalog metadata, model versions, index versions, and evaluation loops fresh enough for product use.</span></li>
+              <li><span class="check">✓</span><span>How to benchmark recall, latency, filtering quality, operating cost, stack integration, and the handoff between retrieval and ranking systems.</span></li>
+            </ul>
+            <a class="resource-link" href="https://docs.zilliz.com/docs/filtered-search?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=architecture_filtered_search_docs">Filtered search in Zilliz Cloud docs</a>
+            <a class="resource-link" href="https://zilliz.com/pricing?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=bottom_pricing_calculator#calculator">Zilliz pricing calculator</a>
+          </div>
+          <div class="cta-inner">
+            <div>
+              <h2>Review one Pinterest retrieval workflow with Zilliz</h2>
+              <p>Bring one workflow. We will map candidate objects, metadata filters, freshness path, stack fit, benchmark plan, and the retrieval handoff before ranking.</p>
+            </div>
+            <a class="cta" href="https://zilliz.com/contact?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=bottom_architecture_review">Book a 30-minute architecture review</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>Zilliz Cloud for production vector search.</span>
+        <span><a class="nav-link" href="https://docs.zilliz.com/?utm_source=abm&utm_medium=custom_landing_page&utm_campaign=pinterest&utm_content=footer_docs">Docs</a></span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
