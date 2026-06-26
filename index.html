@@ -623,6 +623,39 @@
       font-size: 16px;
     }
 
+    .article-diagram {
+      margin: 24px 0 18px;
+      padding: 10px;
+      width: min(66.667%, 820px);
+      border: 1px solid #dbe7ef;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(17, 24, 39, 0.05);
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .article-diagram img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 6px;
+    }
+
+    .article-diagram figcaption {
+      margin: 6px 0 0;
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.35;
+      text-align: center;
+    }
+
+    @media (max-width: 760px) {
+      .article-diagram {
+        width: 100%;
+      }
+    }
+
     .source-row {
       display: flex;
       flex-wrap: wrap;
@@ -2065,6 +2098,10 @@
                 <p>As AI workflows spread across discovery, shopping, ads, assistant context, and analytics, retrieval stops being a feature-specific implementation detail. The same work appears in different forms: candidate generation for Pins and products, contextual ads retrieval, campaign insight retrieval, table and documentation search, relevance evaluation, and embedding-based ranking research.</p>
                 <p>Some of that work should stay close to the product surface. Pinterest's rankers, business logic, safety rules, auction mechanics, and assistant experiences should remain central. The question is which responsibilities should be made explicit before that layer takes over.</p>
                 <p><strong>The handoff before ranking should make the key guarantees explicit: candidate IDs, object type, retrieval score, metadata used for filtering, freshness state, model and index version, latency envelope, and fallback behavior.</strong> If those guarantees are different for every surface, each team debugs quality, latency, and freshness in its own way. If the handoff is consistent, product teams can focus on ranking and experience while the platform owns the retrieval mechanics that repeat.</p>
+                <figure class="article-diagram" aria-label="Restyled multi-stage retrieval to ranking architecture diagram">
+                  <img src="assets/diagram-drafts/generated/pinterest-learned-retrieval-restyled-v5.png" alt="Multi-stage candidate generation, retrieval, ranking, and handoff pattern">
+                  <figcaption>Retrieval-to-ranking handoff</figcaption>
+                </figure>
                 <ul class="article-list">
                   <li><strong>Candidate objects:</strong> Pins, boards, products, creative assets, query/session context, campaign signals, and internal knowledge objects.</li>
                   <li><strong>Serving guarantees:</strong> recall, filtered recall, p95/p99 latency, freshness, failure mode, and ranker handoff.</li>
@@ -2077,6 +2114,10 @@
                 <h2>Freshness and filters are part of retrieval quality</h2>
                 <p>For Pinterest, freshness is not one update path. A new Pin, product availability change, price update, local inventory signal, advertiser constraint, creative asset, policy change, or trend shift can all affect which candidates should be available. Some updates arrive through streaming paths, some through batch jobs, some through embedding refresh, and some through model or metadata changes.</p>
                 <p>That makes filtered retrieval an architecture issue, not a downstream cleanup step. Shopping and ads workflows need vector similarity to work with merchant, category, price, locale, policy, safety, advertiser eligibility, campaign context, creative format, and recency. If those constraints are applied only after vector search, the system can over-fetch, lose recall, or make latency less predictable.</p>
+                <figure class="article-diagram" aria-label="Restyled doc and object indexing architecture diagram">
+                  <img src="assets/diagram-drafts/generated/pinterest-manas-filter-index-restyled-v5.png" alt="Doc index and object index feeding a candidate set before ranking">
+                  <figcaption>Filter-aware candidate indexing</figcaption>
+                </figure>
                 <p><strong>Filtered recall should be measured directly, because the business constraints are part of relevance.</strong> A retrieval layer that cannot explain how filters affected the candidate set is difficult for rankers, product teams, and platform owners to trust.</p>
                 <p>The same issue shows up in online and offline consistency. Offline systems may produce embeddings, model upgrades, relevance labels, quality signals, metadata enrichment, and backfills. Online services need those improvements in a low-latency serving path. The challenge is keeping that path consistent without every surface maintaining its own glue code between streaming, batch, embedding generation, index refresh, and serving.</p>
               </section>
